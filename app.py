@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import fitz  # pymupdf
 import os
 
 st.title("- RE-ETIQUETADOR 🫡")
