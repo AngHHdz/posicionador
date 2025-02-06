@@ -1,67 +1,62 @@
 import streamlit as st
 import pandas as pd
-from PyPDF2 import PdfReader
-from fpdf import FPDF
+import fitz  # pymupdf
+import os
 
-# Función para leer el archivo Excel
-def leer_excel(archivo_excel):
-    excel_data = pd.read_excel(archivo_excel)
-    return excel_data
+st.title("- Qr POSICION 💆")
 
-# Función para leer el contenido del PDF
-def leer_pdf(archivo_pdf):
-    reader = PdfReader(archivo_pdf)
-    contenido_pdf = ""
-    for page in reader.pages:
-        contenido_pdf += page.extract_text()
-    return contenido_pdf
+# Subir archivos
+pdf_file = st.file_uploader("CARGA LOS QR", type=["pdf"])
+excel_file = st.file_uploader("CARGA LOS VINS CON POSICION", type=["xlsx"])
 
-# Función para modificar el PDF y agregar datos
-def modificar_pdf(contenido_pdf, dato_a_agregar):
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.add_page()
+if pdf_file and excel_file:
+    # Guardar archivos temporalmente
+    pdf_path = "temp.pdf"
+    excel_path = "temp.xlsx"
 
-    # Agregar contenido original del PDF
-    pdf.set_font("Arial", size=12)
-    pdf.multi_cell(0, 10, contenido_pdf)
+    with open(pdf_path, "wb") as f:
+        f.write(pdf_file.read())
 
-    # Agregar el dato extraído del Excel
-    pdf.ln(10)
-    pdf.cell(200, 10, txt=f"Nuevo dato agregado: {dato_a_agregar}", ln=True)
+    with open(excel_path, "wb") as f:
+        f.write(excel_file.read())
 
-    # Guardar el nuevo PDF
-    archivo_modificado = "archivo_modificado.pdf"
-    pdf.output(archivo_modificado)
-    return archivo_modificado
+    # Cargar el archivo Excel
+    df = pd.read_excel(excel_path, usecols=["VIN", "POSICION"])
 
-# Interfaz de Streamlit
-st.title("Buscar y Modificar PDF con Datos de Excel")
+    # Cargar el PDF
+    pdf_doc = fitz.open(pdf_path)
 
-# Subir el archivo Excel
-archivo_excel = st.file_uploader("Sube un archivo Excel", type=["xlsx"])
-# Subir el archivo PDF
-archivo_pdf = st.file_uploader("Sube un archivo PDF", type=["pdf"])
+    # Procesar cada página del PDF
+    for page_num in range(len(pdf_doc)):
+        page = pdf_doc[page_num]
+        text = page.get_text("text")  # Extraer texto de la página
 
-if archivo_excel is not None and archivo_pdf is not None:
-    # Leer el archivo Excel
-    excel_data = leer_excel(archivo_excel)
-    dato_a_buscar = excel_data['columna_donde_esta_el_dato'][0]  # asumiendo que tienes una columna llamada 'columna_donde_esta_el_dato'
+        # Buscar coincidencias en el PDF
+        for _, row in df.iterrows():
+            palabra_clave = str(row["VIN"])
+            texto_a_insertar = str(row["POSICION"])
 
-    # Leer el contenido del PDF
-    contenido_pdf = leer_pdf(archivo_pdf)
+            if palabra_clave in text:
+                rect = page.search_for(palabra_clave)
+                if rect:
+                    x, y, w, h = rect[0]  # Tomamos la primera coincidencia
 
-    # Buscar el dato en el PDF
-    if dato_a_buscar in contenido_pdf:
-        st.success(f"El dato '{dato_a_buscar}' fue encontrado en el PDF.")
-        
-        # Modificar el PDF y agregar el dato
-        archivo_modificado = modificar_pdf(contenido_pdf, dato_a_buscar)
-        st.download_button(
-            label="Descargar PDF Modificado",
-            data=open(archivo_modificado, "rb").read(),
-            file_name=archivo_modificado,
-            mime="application/pdf"
-        )
-    else:
-        st.warning(f"El dato '{dato_a_buscar}' no se encontró en el PDF.")
+                    offset_x = 50  # Desplazamiento a la derecha
+
+                    # Insertar texto en vertical al lado derecho de la coincidencia
+                    page.insert_textbox(
+                        fitz.Rect(x + offset_x + 10, y + 10, x + offset_x + 50, y + 450),
+                        texto_a_insertar,
+                        fontsize=10,
+                        color=(0, 0, 0),
+                        rotate= 45  # Rotación vertical
+                    )
+
+    # Guardar el PDF modificado
+    output_pdf = "QR NUEVO.pdf"
+    pdf_doc.save(output_pdf)
+    pdf_doc.close()
+
+    # Descargar el nuevo PDF
+    with open(output_pdf, "rb") as f:
+        st.download_button("Descargar PDF Modificado", f, file_name="documento_modificado.pdf")
